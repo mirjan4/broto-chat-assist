@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, MessageSquare } from 'lucide-react';
 
@@ -15,7 +14,6 @@ const Auth = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState<'student' | 'staff'>('student');
   const { signIn, signUp, user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -53,7 +51,8 @@ const Auth = () => {
     e.preventDefault();
     setIsLoading(true);
 
-    const { error } = await signUp(email, password, name, role);
+    // Public signup always creates students
+    const { error } = await signUp(email, password, name);
 
     if (error) {
       toast({
@@ -162,22 +161,10 @@ const Auth = () => {
                     minLength={6}
                   />
                 </div>
-                <div className="space-y-3">
-                  <Label>I am a</Label>
-                  <RadioGroup value={role} onValueChange={(value) => setRole(value as 'student' | 'staff')}>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="student" id="student" />
-                      <Label htmlFor="student" className="font-normal cursor-pointer">
-                        Student
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="staff" id="staff" />
-                      <Label htmlFor="staff" className="font-normal cursor-pointer">
-                        Staff Member
-                      </Label>
-                    </div>
-                  </RadioGroup>
+                <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Note:</strong> Signing up creates a student account. Staff accounts must be invited by existing staff members.
+                  </p>
                 </div>
                 <Button
                   type="submit"

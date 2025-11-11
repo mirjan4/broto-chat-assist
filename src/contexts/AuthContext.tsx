@@ -6,10 +6,10 @@ import { useNavigate } from 'react-router-dom';
 interface AuthContextType {
   user: User | null;
   session: Session | null;
-  userRole: 'student' | 'staff' | null;
+  userRole: 'student' | 'staff' | 'admin' | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signUp: (email: string, password: string, name: string, role: 'student' | 'staff') => Promise<{ error: any }>;
+  signUp: (email: string, password: string, name: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
 }
 
@@ -18,7 +18,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [userRole, setUserRole] = useState<'student' | 'staff' | null>(null);
+  const [userRole, setUserRole] = useState<'student' | 'staff' | 'admin' | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -77,9 +77,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error };
   };
 
-  const signUp = async (email: string, password: string, name: string, role: 'student' | 'staff') => {
+  const signUp = async (email: string, password: string, name: string) => {
     const redirectUrl = `${window.location.origin}/`;
     
+    // Public signup ALWAYS creates students only
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -91,17 +92,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // If signup successful, create user role
+    // If signup successful, create student role
     if (data.user && !error) {
       const { error: roleError } = await supabase
         .from('user_roles')
         .insert({
           user_id: data.user.id,
-          role: role,
+          role: 'student',
         });
       
       if (roleError) {
         console.error('Error creating user role:', roleError);
+        // Log security event for failed role creation
+        await supabase.rpc('log_security_event', {
+          _action: 'signup_role_creation_failed',
+          _details: { email, error: roleError.message }
+        });
       }
     }
 

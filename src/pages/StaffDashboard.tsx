@@ -4,8 +4,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MessageSquare, Clock, Users } from 'lucide-react';
+import { MessageSquare, Clock, Users, UserPlus } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 
@@ -119,9 +120,15 @@ const StaffDashboard = () => {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Staff Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Manage and respond to student tickets</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Staff Dashboard</h1>
+            <p className="text-muted-foreground mt-1">Manage and respond to student tickets</p>
+          </div>
+          <Button onClick={() => navigate('/invite-staff')} className="gap-2">
+            <UserPlus className="w-4 h-4" />
+            Invite Staff
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
