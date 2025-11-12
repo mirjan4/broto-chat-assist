@@ -7,14 +7,21 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Send, CheckCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Send, CheckCircle, Loader2, Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { MediaPreview } from '@/components/MediaPreview';
+
+interface MediaAsset {
+  id: string;
+  file_type: 'image' | 'pdf';
+  storage_path: string;
+}
 
 interface Message {
   id: string;
-  content: string;
+  content: string | null;
   message_type: string;
   created_at: string;
   sender_id: string;
@@ -22,6 +29,7 @@ interface Message {
     name: string;
     email: string;
   };
+  media_assets?: MediaAsset[];
 }
 
 interface Ticket {
@@ -44,10 +52,13 @@ const TicketThread = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const { user, userRole } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (id && user) {
@@ -107,7 +118,11 @@ const TicketThread = () => {
 
     const { data, error } = await supabase
       .from('messages')
-      .select('*, profiles(name, email)')
+      .select(`
+        *,
+        profiles(name, email),
+        media_assets(*)
+      `)
       .eq('ticket_id', id)
       .order('created_at', { ascending: true });
 
@@ -123,32 +138,100 @@ const TicketThread = () => {
     setIsLoading(false);
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const validFiles = files.filter(file => {
+      const isValidType = file.type.startsWith('image/') || file.type === 'application/pdf';
+      const isValidSize = file.size <= 5 * 1024 * 1024;
+      
+      if (!isValidType) {
+        toast({
+          title: "Invalid file type",
+          description: `${file.name} is not an image or PDF`,
+          variant: "destructive",
+        });
+      }
+      if (!isValidSize) {
+        toast({
+          title: "File too large",
+          description: `${file.name} exceeds 5MB limit`,
+          variant: "destructive",
+        });
+      }
+      
+      return isValidType && isValidSize;
+    });
+    
+    setSelectedFiles(prev => [...prev, ...validFiles]);
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !id || !newMessage.trim()) return;
+    if (!user || !id || (!newMessage.trim() && selectedFiles.length === 0)) return;
 
     setIsSending(true);
+    setIsUploading(selectedFiles.length > 0);
 
-    const { error } = await supabase
-      .from('messages')
-      .insert({
-        ticket_id: id,
-        sender_id: user.id,
-        message_type: 'text',
-        content: newMessage.trim(),
-      });
+    try {
+      // Create the message first
+      const { data: messageData, error: messageError } = await supabase
+        .from('messages')
+        .insert({
+          ticket_id: id,
+          sender_id: user.id,
+          message_type: 'text',
+          content: newMessage.trim() || null,
+        })
+        .select()
+        .single();
 
-    if (error) {
+      if (messageError) throw messageError;
+
+      // Upload files if any
+      if (selectedFiles.length > 0) {
+        for (const file of selectedFiles) {
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${user.id}/${messageData.id}/${crypto.randomUUID()}.${fileExt}`;
+          
+          const { error: uploadError } = await supabase.storage
+            .from('ticket-attachments')
+            .upload(fileName, file);
+
+          if (uploadError) throw uploadError;
+
+          // Create media asset record
+          const fileType = file.type.startsWith('image/') ? 'image' : 'pdf';
+          const { error: mediaError } = await supabase
+            .from('media_assets')
+            .insert({
+              message_id: messageData.id,
+              file_type: fileType,
+              storage_path: fileName
+            });
+
+          if (mediaError) throw mediaError;
+        }
+      }
+
+      setNewMessage('');
+      setSelectedFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error: any) {
       toast({
         title: 'Error sending message',
         description: error.message,
         variant: 'destructive',
       });
-    } else {
-      setNewMessage('');
+    } finally {
+      setIsSending(false);
+      setIsUploading(false);
     }
-
-    setIsSending(false);
   };
 
   const handleResolveTicket = async () => {
@@ -269,7 +352,18 @@ const TicketThread = () => {
                           {formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}
                         </span>
                       </div>
-                      <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
+                      {message.content && (
+                        <p className="text-sm whitespace-pre-wrap break-words mb-2">{message.content}</p>
+                      )}
+                      
+                      {/* Display attached files */}
+                      {message.media_assets && message.media_assets.length > 0 && (
+                        <div className="space-y-2 mt-2">
+                          {message.media_assets.map((asset) => (
+                            <MediaPreview key={asset.id} asset={asset} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -278,26 +372,74 @@ const TicketThread = () => {
             </div>
 
             {ticket.status === 'pending' && (
-              <form onSubmit={handleSendMessage} className="flex gap-2">
-                <Textarea
-                  placeholder="Type your message..."
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  rows={2}
-                  className="resize-none flex-1"
-                />
-                <Button
-                  type="submit"
-                  disabled={isSending || !newMessage.trim()}
-                  size="lg"
-                  className="gap-2"
-                >
-                  {isSending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                </Button>
+              <form onSubmit={handleSendMessage} className="space-y-3">
+                {/* File preview */}
+                {selectedFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedFiles.map((file, index) => (
+                      <div key={index} className="flex items-center gap-2 bg-muted px-3 py-2 rounded-md">
+                        {file.type.startsWith('image/') ? (
+                          <ImageIcon className="h-4 w-4" />
+                        ) : (
+                          <FileText className="h-4 w-4" />
+                        )}
+                        <span className="text-sm truncate max-w-[150px]">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeFile(index)}
+                          className="hover:text-destructive"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                <div className="flex gap-2">
+                  <Textarea
+                    placeholder="Type your message..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    rows={2}
+                    className="resize-none flex-1"
+                    disabled={isSending}
+                  />
+                  <div className="flex flex-col gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*,.pdf"
+                      multiple
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      id="file-upload"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isSending}
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={isSending || (!newMessage.trim() && selectedFiles.length === 0)}
+                      size="lg"
+                      className="gap-2"
+                    >
+                      {isUploading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : isSending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </form>
             )}
           </CardContent>

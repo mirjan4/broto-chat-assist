@@ -1,1 +1,7 @@
 project_id = "nmntolnstdaeamlbqyfv"
+
+[functions.invite-staff]
+verify_jwt = true
+
+[functions.setup-demo-accounts]
+verify_jwt = false
