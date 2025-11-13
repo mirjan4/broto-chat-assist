@@ -1,7 +1,8 @@
 import { ReactNode } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { LogOut, MessageSquare, User } from 'lucide-react';
+import { LogOut, MessageSquare, User, LayoutDashboard, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 interface LayoutProps {
@@ -10,6 +11,8 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const { user, userRole, signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   return (
     <div className="min-h-screen bg-gradient-subtle">
@@ -28,11 +31,33 @@ export function Layout({ children }: LayoutProps) {
             
             {user && (
               <div className="flex items-center gap-3">
+                {userRole === 'admin' && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={location.pathname === '/admin-dashboard' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => navigate('/admin-dashboard')}
+                      className="gap-2"
+                    >
+                      <LayoutDashboard className="h-4 w-4" />
+                      Admin Dashboard
+                    </Button>
+                    <Button
+                      variant={location.pathname === '/' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => navigate('/')}
+                      className="gap-2"
+                    >
+                      <Users className="h-4 w-4" />
+                      Staff View
+                    </Button>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm font-medium">{user.email}</span>
                   {userRole && (
-                    <Badge variant={userRole === 'staff' ? 'default' : 'secondary'} className="capitalize">
+                    <Badge variant={userRole === 'staff' || userRole === 'admin' ? 'default' : 'secondary'} className="capitalize">
                       {userRole}
                     </Badge>
                   )}
