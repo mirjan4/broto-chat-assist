@@ -9,6 +9,7 @@ import Auth from "./pages/Auth";
 import NewTicket from "./pages/NewTicket";
 import TicketThread from "./pages/TicketThread";
 import InviteStaff from "./pages/InviteStaff";
+import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
             <Route path="/new-ticket" element={<NewTicket />} />
             <Route path="/ticket/:id" element={<TicketThread />} />
             <Route path="/invite-staff" element={<InviteStaff />} />
+            <Route path="/admin-dashboard" element={<AdminDashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -26,6 +26,11 @@ const Index = () => {
     return null;
   }
 
+  if (userRole === 'admin') {
+    navigate('/admin-dashboard');
+    return null;
+  }
+  
   return userRole === 'staff' ? <StaffDashboard /> : <StudentDashboard />;
 };
 
