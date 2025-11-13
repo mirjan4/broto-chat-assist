@@ -133,7 +133,7 @@ const TicketThread = () => {
         variant: 'destructive',
       });
     } else {
-      setMessages(data || []);
+      setMessages(data as Message[] || []);
     }
     setIsLoading(false);
   };
