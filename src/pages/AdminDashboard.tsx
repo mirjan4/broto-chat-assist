@@ -8,10 +8,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { BarChart3, Clock, TrendingUp, Users, AlertCircle, CheckCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { BarChart3, Clock, TrendingUp, Users, AlertCircle, CheckCircle, CalendarIcon, Filter, X } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { formatDistanceToNow, format, differenceInHours } from 'date-fns';
+import { formatDistanceToNow, format, differenceInHours, subDays, startOfDay, endOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 interface TicketMetrics {
   total: number;
@@ -41,6 +46,21 @@ interface StaffPerformance {
   resolutionRate: number;
 }
 
+interface FilterState {
+  dateRange: {
+    from: Date | null;
+    to: Date | null;
+  };
+  status: 'all' | 'pending' | 'resolved';
+  staffMember: string | null;
+}
+
+interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+}
+
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--warning))', 'hsl(var(--success))', 'hsl(var(--accent))'];
 
 const AdminDashboard = () => {
@@ -53,6 +73,15 @@ const AdminDashboard = () => {
   const [commonIssues, setCommonIssues] = useState<CommonIssue[]>([]);
   const [staffPerformance, setStaffPerformance] = useState<StaffPerformance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [filters, setFilters] = useState<FilterState>({
+    dateRange: {
+      from: subDays(new Date(), 30),
+      to: new Date()
+    },
+    status: 'all',
+    staffMember: null
+  });
 
   useEffect(() => {
     if (!authLoading && userRole !== 'admin') {
@@ -61,6 +90,7 @@ const AdminDashboard = () => {
     }
     
     if (!authLoading && userRole === 'admin') {
+      loadStaffList();
       fetchAllAnalytics();
       
       // Subscribe to realtime updates
@@ -76,6 +106,22 @@ const AdminDashboard = () => {
     }
   }, [userRole, authLoading, navigate]);
 
+  const loadStaffList = async () => {
+    const { data: staffRoles } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .in('role', ['staff', 'admin']);
+
+    const staffIds = staffRoles?.map(r => r.user_id) || [];
+
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, name, email')
+      .in('id', staffIds);
+
+    setStaffList(profiles || []);
+  };
+
   const fetchAllAnalytics = async () => {
     setLoading(true);
     await Promise.all([
@@ -88,20 +134,39 @@ const AdminDashboard = () => {
   };
 
   const fetchMetrics = async () => {
-    const { data: tickets, error } = await supabase
-      .from('tickets')
-      .select('id, status, created_at, updated_at');
+    let query = supabase.from('tickets').select('id, status, created_at, updated_at');
+
+    // Apply date range filter
+    if (filters.dateRange.from) {
+      query = query.gte('created_at', startOfDay(filters.dateRange.from).toISOString());
+    }
+    if (filters.dateRange.to) {
+      query = query.lte('created_at', endOfDay(filters.dateRange.to).toISOString());
+    }
+
+    // Apply status filter
+    if (filters.status !== 'all') {
+      query = query.eq('status', filters.status);
+    }
+
+    const { data: tickets, error } = await query;
 
     if (error) {
       toast({ title: 'Error fetching metrics', description: error.message, variant: 'destructive' });
       return;
     }
 
-    const total = tickets?.length || 0;
-    const pending = tickets?.filter(t => t.status === 'pending').length || 0;
-    const resolved = tickets?.filter(t => t.status === 'resolved').length || 0;
+    // Apply staff filter
+    let filteredTickets = tickets || [];
+    if (filters.staffMember) {
+      filteredTickets = await filterTicketsByStaff(filteredTickets, filters.staffMember);
+    }
+
+    const total = filteredTickets.length;
+    const pending = filteredTickets.filter(t => t.status === 'pending').length;
+    const resolved = filteredTickets.filter(t => t.status === 'resolved').length;
     
-    const resolvedTickets = tickets?.filter(t => t.status === 'resolved') || [];
+    const resolvedTickets = filteredTickets.filter(t => t.status === 'resolved');
     const avgResolutionHours = resolvedTickets.length > 0
       ? resolvedTickets.reduce((sum, t) => sum + differenceInHours(new Date(t.updated_at), new Date(t.created_at)), 0) / resolvedTickets.length
       : 0;
@@ -109,47 +174,94 @@ const AdminDashboard = () => {
     setMetrics({ total, pending, resolved, avgResolutionHours });
   };
 
+  const filterTicketsByStaff = async (tickets: any[], staffId: string) => {
+    if (tickets.length === 0) return [];
+    
+    const { data: messages } = await supabase
+      .from('messages')
+      .select('ticket_id')
+      .eq('sender_id', staffId)
+      .in('ticket_id', tickets.map(t => t.id));
+
+    const ticketIdsWithStaffReply = new Set(messages?.map(m => m.ticket_id));
+    return tickets.filter(t => ticketIdsWithStaffReply.has(t.id));
+  };
+
   const fetchTicketTrends = async () => {
-    const { data: tickets, error } = await supabase
-      .from('tickets')
-      .select('created_at')
-      .order('created_at', { ascending: true });
+    let query = supabase.from('tickets').select('id, created_at').order('created_at', { ascending: true });
+
+    // Apply date range filter
+    if (filters.dateRange.from) {
+      query = query.gte('created_at', startOfDay(filters.dateRange.from).toISOString());
+    }
+    if (filters.dateRange.to) {
+      query = query.lte('created_at', endOfDay(filters.dateRange.to).toISOString());
+    }
+
+    // Apply status filter
+    if (filters.status !== 'all') {
+      query = query.eq('status', filters.status);
+    }
+
+    const { data: tickets, error } = await query;
 
     if (error) {
       toast({ title: 'Error fetching trends', description: error.message, variant: 'destructive' });
       return;
     }
 
+    // Apply staff filter
+    let filteredTickets = tickets || [];
+    if (filters.staffMember) {
+      filteredTickets = await filterTicketsByStaff(filteredTickets, filters.staffMember);
+    }
+
     const dateMap = new Map<string, number>();
-    tickets?.forEach(ticket => {
+    filteredTickets.forEach(ticket => {
       const date = format(new Date(ticket.created_at), 'MMM dd');
       dateMap.set(date, (dateMap.get(date) || 0) + 1);
     });
 
-    const trends = Array.from(dateMap.entries())
-      .slice(-30)
-      .map(([date, count]) => ({ date, count }));
-
+    const trends = Array.from(dateMap.entries()).map(([date, count]) => ({ date, count }));
     setTicketTrends(trends);
   };
 
   const fetchCommonIssues = async () => {
-    const { data: tickets, error } = await supabase
-      .from('tickets')
-      .select('subject');
+    let query = supabase.from('tickets').select('id, subject, created_at');
+
+    // Apply date range filter
+    if (filters.dateRange.from) {
+      query = query.gte('created_at', startOfDay(filters.dateRange.from).toISOString());
+    }
+    if (filters.dateRange.to) {
+      query = query.lte('created_at', endOfDay(filters.dateRange.to).toISOString());
+    }
+
+    // Apply status filter
+    if (filters.status !== 'all') {
+      query = query.eq('status', filters.status);
+    }
+
+    const { data: tickets, error } = await query;
 
     if (error) {
       toast({ title: 'Error fetching issues', description: error.message, variant: 'destructive' });
       return;
     }
 
+    // Apply staff filter
+    let filteredTickets = tickets || [];
+    if (filters.staffMember) {
+      filteredTickets = await filterTicketsByStaff(filteredTickets, filters.staffMember);
+    }
+
     const subjectMap = new Map<string, number>();
-    tickets?.forEach(ticket => {
+    filteredTickets.forEach(ticket => {
       const subject = ticket.subject;
       subjectMap.set(subject, (subjectMap.get(subject) || 0) + 1);
     });
 
-    const total = tickets?.length || 1;
+    const total = filteredTickets.length || 1;
     const issues = Array.from(subjectMap.entries())
       .map(([subject, count]) => ({
         subject,
@@ -173,7 +285,12 @@ const AdminDashboard = () => {
       return;
     }
 
-    const staffIds = staffRoles?.map(r => r.user_id) || [];
+    let staffIds = staffRoles?.map(r => r.user_id) || [];
+
+    // If specific staff member selected, filter to just that staff member
+    if (filters.staffMember) {
+      staffIds = staffIds.filter(id => id === filters.staffMember);
+    }
 
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
@@ -187,10 +304,25 @@ const AdminDashboard = () => {
 
     const performance = await Promise.all(
       (profiles || []).map(async (profile) => {
-        const { data: messages } = await supabase
+        let messagesQuery = supabase
           .from('messages')
           .select('ticket_id, created_at, tickets!inner(student_id, created_at, status)')
           .eq('sender_id', profile.id);
+
+        // Apply date range filter to messages
+        if (filters.dateRange.from) {
+          messagesQuery = messagesQuery.gte('tickets.created_at', startOfDay(filters.dateRange.from).toISOString());
+        }
+        if (filters.dateRange.to) {
+          messagesQuery = messagesQuery.lte('tickets.created_at', endOfDay(filters.dateRange.to).toISOString());
+        }
+
+        // Apply status filter
+        if (filters.status !== 'all') {
+          messagesQuery = messagesQuery.eq('tickets.status', filters.status);
+        }
+
+        const { data: messages } = await messagesQuery;
 
         const uniqueTickets = new Set(messages?.map(m => m.ticket_id) || []);
         const ticketsHandled = uniqueTickets.size;
@@ -229,6 +361,27 @@ const AdminDashboard = () => {
     setStaffPerformance(performance.sort((a, b) => b.ticketsHandled - a.ticketsHandled));
   };
 
+  const handleApplyFilters = () => {
+    fetchAllAnalytics();
+  };
+
+  const handleResetFilters = () => {
+    setFilters({
+      dateRange: {
+        from: subDays(new Date(), 30),
+        to: new Date()
+      },
+      status: 'all',
+      staffMember: null
+    });
+  };
+
+  useEffect(() => {
+    if (!authLoading && userRole === 'admin') {
+      fetchAllAnalytics();
+    }
+  }, [filters]);
+
   const statusData = metrics ? [
     { name: 'Pending', value: metrics.pending },
     { name: 'Resolved', value: metrics.resolved },
@@ -248,6 +401,12 @@ const AdminDashboard = () => {
     );
   }
 
+  const hasActiveFilters = 
+    filters.status !== 'all' || 
+    filters.staffMember !== null ||
+    filters.dateRange.from?.getTime() !== subDays(new Date(), 30).setHours(0,0,0,0) ||
+    filters.dateRange.to?.getTime() !== new Date().setHours(0,0,0,0);
+
   return (
     <Layout>
       <div className="max-w-7xl mx-auto space-y-6">
@@ -257,6 +416,133 @@ const AdminDashboard = () => {
             <p className="text-muted-foreground">Comprehensive analytics and performance metrics</p>
           </div>
         </div>
+
+        {/* Filter Bar */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="h-5 w-5" />
+              Filters
+            </CardTitle>
+            <CardDescription>Filter analytics by date range, status, and staff member</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Date Range Filter */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Date Range</label>
+                <div className="flex gap-2">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className={cn("justify-start text-left font-normal", !filters.dateRange.from && "text-muted-foreground")}>
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {filters.dateRange.from ? format(filters.dateRange.from, "MMM dd, yyyy") : "From"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={filters.dateRange.from || undefined}
+                        onSelect={(date) => setFilters(prev => ({ ...prev, dateRange: { ...prev.dateRange, from: date || null } }))}
+                        initialFocus
+                        className="pointer-events-auto"
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className={cn("justify-start text-left font-normal", !filters.dateRange.to && "text-muted-foreground")}>
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {filters.dateRange.to ? format(filters.dateRange.to, "MMM dd, yyyy") : "To"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={filters.dateRange.to || undefined}
+                        onSelect={(date) => setFilters(prev => ({ ...prev, dateRange: { ...prev.dateRange, to: date || null } }))}
+                        initialFocus
+                        className="pointer-events-auto"
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button variant="ghost" size="sm" onClick={() => setFilters(prev => ({ ...prev, dateRange: { from: subDays(new Date(), 7), to: new Date() } }))}>
+                    Last 7 days
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setFilters(prev => ({ ...prev, dateRange: { from: subDays(new Date(), 30), to: new Date() } }))}>
+                    Last 30 days
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setFilters(prev => ({ ...prev, dateRange: { from: null, to: null } }))}>
+                    All time
+                  </Button>
+                </div>
+              </div>
+
+              {/* Status Filter */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Status</label>
+                <Select value={filters.status} onValueChange={(value: 'all' | 'pending' | 'resolved') => setFilters(prev => ({ ...prev, status: value }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="resolved">Resolved</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Staff Member Filter */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Staff Member</label>
+                <Select value={filters.staffMember || 'all'} onValueChange={(value) => setFilters(prev => ({ ...prev, staffMember: value === 'all' ? null : value }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Staff</SelectItem>
+                    {staffList.map(staff => (
+                      <SelectItem key={staff.id} value={staff.id}>
+                        {staff.name} ({staff.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Active Filters Display */}
+            {hasActiveFilters && (
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-sm text-muted-foreground">Active filters:</span>
+                {filters.dateRange.from && (
+                  <Badge variant="secondary" className="gap-1">
+                    📅 {format(filters.dateRange.from, "MMM dd")} - {filters.dateRange.to ? format(filters.dateRange.to, "MMM dd") : "Now"}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilters(prev => ({ ...prev, dateRange: { from: subDays(new Date(), 30), to: new Date() } }))} />
+                  </Badge>
+                )}
+                {filters.status !== 'all' && (
+                  <Badge variant="secondary" className="gap-1">
+                    🎫 {filters.status}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilters(prev => ({ ...prev, status: 'all' }))} />
+                  </Badge>
+                )}
+                {filters.staffMember && (
+                  <Badge variant="secondary" className="gap-1">
+                    👤 {staffList.find(s => s.id === filters.staffMember)?.name}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilters(prev => ({ ...prev, staffMember: null }))} />
+                  </Badge>
+                )}
+                <Button variant="ghost" size="sm" onClick={handleResetFilters}>
+                  Reset All
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Key Metrics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
