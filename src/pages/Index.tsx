@@ -3,16 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import StudentDashboard from './StudentDashboard';
 import StaffDashboard from './StaffDashboard';
+import Landing from './Landing';
 
 const Index = () => {
   const { user, userRole, loading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loading && !user) {
-      navigate('/auth');
+    if (!loading && userRole === 'admin') {
+      navigate('/admin-dashboard');
     }
-  }, [user, loading, navigate]);
+  }, [userRole, loading, navigate]);
 
   if (loading) {
     return (
@@ -23,12 +24,7 @@ const Index = () => {
   }
 
   if (!user) {
-    return null;
-  }
-
-  if (userRole === 'admin') {
-    navigate('/admin-dashboard');
-    return null;
+    return <Landing />;
   }
   
   return userRole === 'staff' ? <StaffDashboard /> : <StudentDashboard />;
