@@ -71,27 +71,6 @@ const Auth = () => {
     setIsLoading(false);
   };
 
-  const handleDemoLogin = async (email: string, password: string, roleName: string) => {
-    setIsLoading(true);
-
-    const { error } = await signIn(email, password);
-
-    if (error) {
-      toast({
-        title: `Error logging in as ${roleName}`,
-        description: error.message,
-        variant: 'destructive',
-      });
-    } else {
-      toast({
-        title: `Logged in as ${roleName}!`,
-        description: `Redirecting to ${roleName} dashboard...`,
-      });
-    }
-
-    setIsLoading(false);
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-subtle p-4">
       <Card className="w-full max-w-md shadow-xl border-border/50">
@@ -198,44 +177,6 @@ const Auth = () => {
               </form>
             </TabsContent>
           </Tabs>
-
-          <div className="mt-6 p-4 border border-border/50 rounded-lg bg-muted/30">
-            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              🧪 Demo Accounts
-            </h3>
-            <div className="space-y-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => handleDemoLogin('admin@example.com', 'admin123', 'Admin')}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <span className="mr-2">🔴</span>
-                )}
-                Try as Admin
-                <span className="ml-auto text-xs text-muted-foreground">Full analytics & management</span>
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => handleDemoLogin('staff@example.com', 'staff123', 'Staff')}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <span className="mr-2">🔵</span>
-                )}
-                Try as Staff
-                <span className="ml-auto text-xs text-muted-foreground">Ticket management</span>
-              </Button>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>
